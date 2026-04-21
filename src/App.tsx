@@ -6,13 +6,19 @@ import {
   CheckCircle2, 
   AlertCircle, 
   ArrowRight, 
+  ShieldCheck,
   Download, 
   Hash, 
   Layers,
   ChevronRight,
   Database,
   ArrowLeft,
-  RefreshCcw
+  RefreshCcw,
+  Filter,
+  ChevronDown,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { Step, MappingEntry, ATSStep, DuplicateAnalysis, ComparisonResult } from './types';
 import { 
@@ -54,6 +60,24 @@ export default function App() {
     results2Way: []
   });
 
+  const [loading, setLoading] = useState(false);
+  const [oneWayComplete, setOneWayComplete] = useState(false);
+  const [maxReachedIdx, setMaxReachedIdx] = useState(0);
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [dupSortDir, setDupSortDir] = useState<'NONE' | 'ASC' | 'DESC'>('NONE');
+  const [activeDupView, setActiveDupView] = useState<'1-WAY' | '2-WAY'>('1-WAY');
+
+  const activeResults = currentStep === 'COMPARE_1WAY' ? data.results1Way : data.results2Way;
+  const filteredResults = activeResults.filter(res => 
+    statusFilters.length === 0 || statusFilters.includes(res.status)
+  );
+  const uniqueStatuses: string[] = Array.from(new Set(activeResults.map(r => r.status as string)));
+
+  React.useEffect(() => {
+    setStatusFilters([]); // Clear filters when navigating between 1-WAY and 2-WAY views
+  }, [currentStep]);
+
   React.useEffect(() => {
     if (currentStep === 'COMPARE_1WAY' && data.results1Way.length === 0) {
       const results = runComparison1Way(data.oneWay, data.atsSteps);
@@ -64,11 +88,9 @@ export default function App() {
       setData(prev => ({ ...prev, results2Way: results }));
     }
   }, [currentStep]);
-  
-  const [loading, setLoading] = useState(false);
-  const [oneWayComplete, setOneWayComplete] = useState(false);
 
   const [dragState, setDragState] = useState<{ [key: string]: boolean }>({ static: false, ats: false });
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const handleFileUpload = (type: 'static' | 'ats', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -172,6 +194,7 @@ export default function App() {
         splitIndex
       }));
       setCurrentStep('PARSED');
+      setMaxReachedIdx(prev => Math.max(prev, 1));
     } catch (err) {
       alert('Error parsing JSON files. Please ensure they are valid JSON.');
     } finally {
@@ -184,7 +207,15 @@ export default function App() {
     const dupes2Way = findDuplicates(data.twoWay);
     
     setData(prev => ({ ...prev, dupes1Way, dupes2Way }));
+
+    if (dupes1Way.entries.length > 0) {
+      setActiveDupView('1-WAY');
+    } else if (dupes2Way.entries.length > 0) {
+      setActiveDupView('2-WAY');
+    }
+
     setCurrentStep('DUPLICATES');
+    setMaxReachedIdx(prev => Math.max(prev, 2));
   };
 
   const downloadDuplicates = (type: '1-WAY' | '2-WAY') => {
@@ -202,6 +233,34 @@ export default function App() {
     downloadFile(csv, `comparison_${type.toLowerCase()}.csv`, 'text/csv');
   };
 
+  const allDuplicates = React.useMemo(() => {
+    const list1 = data.dupes1Way.entries.map(d => ({...d, t: '1-WAY' as const, det: data.dupes1Way.type}));
+    const list2 = data.dupes2Way.entries.map(d => ({...d, t: '2-WAY' as const, det: data.dupes2Way.type}));
+    
+    const base = activeDupView === '1-WAY' ? list1 : list2;
+    
+    if (dupSortDir === 'NONE') return base;
+    
+    return [...base].sort((a, b) => {
+      const valA = String(a.referenceID || '');
+      const valB = String(b.referenceID || '');
+      if (dupSortDir === 'ASC') return valA < valB ? -1 : (valA > valB ? 1 : 0);
+      return valA < valB ? 1 : (valA > valB ? -1 : 0);
+    });
+  }, [data.dupes1Way, data.dupes2Way, dupSortDir, activeDupView]);
+
+  const toggleDupSort = () => {
+    setDupSortDir(prev => prev === 'NONE' ? 'ASC' : (prev === 'ASC' ? 'DESC' : 'NONE'));
+  };
+
+  const toggleStatusFilter = (status: string) => {
+    setStatusFilters(prev => 
+      prev.includes(status) 
+        ? prev.filter(s => s !== status) 
+        : [...prev, status]
+    );
+  };
+
   const resetWorkflow = () => {
     setFiles({ static: null, ats: null });
     setData({ 
@@ -215,7 +274,13 @@ export default function App() {
       results2Way: []
     });
     setOneWayComplete(false);
+    setMaxReachedIdx(0);
+    setStatusFilters([]);
+    setShowFilterDropdown(false);
+    setDupSortDir('NONE');
+    setActiveDupView('1-WAY');
     setCurrentStep('UPLOAD');
+    setShowResetConfirm(false);
   };
 
   return (
@@ -226,50 +291,100 @@ export default function App() {
           <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center shadow-sm">
             <Database className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">MappingFlow <span className="text-slate-400 font-normal">v1.2</span></h1>
+          <h1 className="text-xl font-bold tracking-tight">Static BPD Comparision</h1>
         </div>
         <div className="flex items-center gap-4 text-xs font-semibold text-slate-500">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-500 rounded-full"></span> Session Active</span>
           <button 
-            onClick={resetWorkflow}
-            className="px-3 py-1.5 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+            onClick={() => setShowResetConfirm(true)}
+            className="px-4 py-2 border-2 border-slate-200 text-slate-600 rounded-lg hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700 active:scale-95 transition-all flex items-center gap-2 font-bold shadow-sm"
           >
-            <RefreshCcw size={14} />
+            <RefreshCcw size={15} />
             Reset Workflow
           </button>
         </div>
       </header>
+
+      <AnimatePresence>
+        {showResetConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl border border-slate-100"
+            >
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mb-6">
+                <RefreshCcw size={24} />
+              </div>
+              <h3 className="text-xl font-extrabold tracking-tight mb-2">Reset Workflow?</h3>
+              <p className="text-slate-500 text-sm leading-relaxed mb-8">
+                This will clear all uploaded files, classification results, and comparison data. This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 px-4 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={resetWorkflow}
+                  className="flex-1 px-4 py-2.5 text-sm font-bold bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-200 hover:bg-amber-700 active:scale-95 transition-all"
+                >
+                  Yes, Reset
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar Stepper */}
         <aside className="w-72 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 shrink-0">
           <div className="space-y-6">
             {STEPS.map((step, idx) => {
-              const stepIdx = STEPS.findIndex(s => s.id === currentStep);
-              const isCompleted = stepIdx > idx;
-              const isActive = stepIdx === idx;
-              const isPending = stepIdx < idx;
+              const mainStepIdx = STEPS.findIndex(s => s.id === currentStep);
+              // For comparison views, we treat them as being at a depth beyond the 'ACTIONS' selection screen
+              const currentEffectiveIdx = mainStepIdx !== -1 ? mainStepIdx : (['COMPARE_1WAY', 'COMPARE_2WAY'].includes(currentStep) ? 4 : -1);
+              
+              const isCompleted = currentEffectiveIdx > idx;
+              const isActive = mainStepIdx === idx || (idx === 3 && currentEffectiveIdx === 4);
+              const isPending = currentEffectiveIdx < idx;
+              
+              // NEW logic: Navigation allowed for any stage already reached/unlocked
+              const canNavigate = idx <= maxReachedIdx;
               
               return (
-                <div key={step.id} className="flex gap-4 items-start relative last:mb-0">
+                <div 
+                  key={step.id} 
+                  onClick={() => {
+                    if (canNavigate) {
+                      setCurrentStep(step.id);
+                    }
+                  }}
+                  className={`flex gap-4 items-start relative last:mb-0 transition-opacity ${canNavigate ? 'cursor-pointer hover:opacity-100' : 'cursor-default'} ${isActive ? 'opacity-100' : (canNavigate ? 'opacity-70' : 'opacity-40')}`}
+                >
                   <div className={`
-                    w-6 h-6 rounded-full flex items-center justify-center text-[10px] shrink-0 font-bold z-10
-                    ${isActive ? 'bg-indigo-600 text-white' : ''}
-                    ${isCompleted ? 'bg-indigo-100 border border-indigo-600 text-indigo-600' : ''}
-                    ${isPending ? 'bg-slate-100 border border-slate-200 text-slate-400' : ''}
+                    w-6 h-6 rounded-full flex items-center justify-center text-[10px] shrink-0 font-bold z-10 transition-colors
+                    ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : ''}
+                    ${isCompleted ? 'bg-indigo-50 border border-indigo-200 text-indigo-600' : ''}
+                    ${isPending && !canNavigate ? 'bg-slate-50 border border-slate-100 text-slate-300' : ''}
+                    ${isPending && canNavigate ? 'bg-indigo-50 border border-indigo-200 text-indigo-400' : ''}
+                    ${canNavigate ? 'group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600' : ''}
                   `}>
                     {isCompleted ? '✓' : idx + 1}
                   </div>
-                  <div className={`flex flex-col ${isPending ? 'opacity-50' : ''}`}>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? 'text-indigo-600' : 'text-slate-400'}`}>
+                  <div className="flex flex-col">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${isActive ? 'text-indigo-600' : (canNavigate ? 'text-slate-500' : 'text-slate-300')}`}>
                       {step.label}
                     </span>
-                    <span className={`text-sm font-medium ${isActive ? 'text-indigo-600' : 'text-slate-700'}`}>
+                    <span className={`text-sm font-medium transition-colors ${isActive ? 'text-indigo-600' : (canNavigate ? 'text-slate-600' : 'text-slate-400')}`}>
                       {step.sub}
                     </span>
                   </div>
                   {idx < STEPS.length - 1 && (
-                    <div className="absolute left-3 top-6 w-[1px] h-10 bg-slate-200 -z-0"></div>
+                    <div className="absolute left-3 top-6 w-[1px] h-10 bg-slate-100 -z-0"></div>
                   )}
                 </div>
               );
@@ -279,13 +394,25 @@ export default function App() {
           <div className="mt-auto">
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-widest">Selected Files</h4>
-              <div className="text-xs font-semibold text-slate-600 truncate flex items-center gap-2">
-                <div className={`w-1.5 h-1.5 rounded-full ${files.static ? 'bg-green-500' : 'bg-slate-300'}`} />
-                {files.static ? files.static.name : 'No static file'}
+              
+              {/* Static File Scrollable Container */}
+              <div className="relative group overflow-hidden mb-1.5">
+                <div className="text-xs font-semibold text-slate-600 flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap scroll-smooth py-0.5 pr-4">
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${files.static ? 'bg-green-500' : 'bg-slate-300'}`} />
+                  <span className="shrink-0">{files.static ? files.static.name : 'No static file'}</span>
+                </div>
+                {/* Visual hint: Gradient fade on the right */}
+                <div className="absolute top-0 right-0 h-full w-6 bg-gradient-to-l from-slate-50 via-slate-50/80 to-transparent pointer-events-none transition-opacity" />
               </div>
-              <div className="text-xs font-semibold text-slate-600 truncate flex items-center gap-2 mt-1">
-                <div className={`w-1.5 h-1.5 rounded-full ${files.ats ? 'bg-green-500' : 'bg-slate-300'}`} />
-                {files.ats ? files.ats.name : 'No status file'}
+
+              {/* ATS File Scrollable Container */}
+              <div className="relative group overflow-hidden">
+                <div className="text-xs font-semibold text-slate-600 flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap scroll-smooth py-0.5 pr-4">
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${files.ats ? 'bg-green-500' : 'bg-slate-300'}`} />
+                  <span className="shrink-0">{files.ats ? files.ats.name : 'No status file'}</span>
+                </div>
+                {/* Visual hint: Gradient fade on the right */}
+                <div className="absolute top-0 right-0 h-full w-6 bg-gradient-to-l from-slate-50 via-slate-50/80 to-transparent pointer-events-none transition-opacity" />
               </div>
             </div>
           </div>
@@ -399,7 +526,6 @@ export default function App() {
                         * Transition point detected at row {data.splitIndex + 1}
                       </span>
                     )}
-                    Please proceed to verify unique reference identifiers.
                   </p>
                   <div className="flex gap-3">
                     <button onClick={() => setCurrentStep('UPLOAD')} className="btn-action btn-secondary px-6">Modify Uploads</button>
@@ -437,7 +563,7 @@ export default function App() {
                               {section.analysis.type.replace('_', ' ')}
                             </span>
                           )}
-                          <span className={`px-2 py-0.5 bg-${section.color}-50 text-${section.color}-700 text-[10px] font-bold rounded-full`}>
+                          <span className={`px-2 py-0.5 bg-${section.color}-50 text-${section.color}-700 text-[10px] font-bold rounded-full`} >
                             {section.analysis.entries.length > 0 ? `${section.analysis.entries.length} Flags` : 'Clean'}
                           </span>
                         </div>
@@ -452,7 +578,7 @@ export default function App() {
                           </p>
                         </div>
                         {section.analysis.entries.length > 0 && (
-                          <button onClick={() => downloadDuplicates(section.type as '1-WAY')} className="btn-dense">
+                          <button onClick={() => downloadDuplicates(section.type as '1-WAY' | '2-WAY')} className="btn-dense">
                             <Download size={12} />
                             DOWNLOAD CSV
                           </button>
@@ -462,46 +588,105 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="flex-1 card flex flex-col min-h-0">
-                  <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between items-center">
-                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Merged Duplicate Manifest</h3>
-                  </div>
-                  <div className="overflow-auto flex-1">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="text-[10px] font-bold text-slate-400 bg-white sticky top-0 border-b border-slate-100 uppercase tracking-tighter">
-                          <th className="px-6 py-4">TYPE</th>
-                          <th className="px-6 py-4">DETECTION</th>
-                          <th className="px-6 py-4">REFERENCE ID</th>
-                          <th className="px-6 py-4">ALTERNATE NAME (LABEL)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="text-xs">
-                        {[
-                          ...data.dupes1Way.entries.map(d => ({...d, t: '1-WAY', det: data.dupes1Way.type})), 
-                          ...data.dupes2Way.entries.map(d => ({...d, t: '2-WAY', det: data.dupes2Way.type}))
-                        ].slice(0, 100).map((m, i) => (
-                          <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-3">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${m.t === '1-WAY' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}`}>
-                                {m.t}
-                              </span>
-                            </td>
-                            <td className="px-6 py-3">
-                              <span className="text-[10px] font-bold text-slate-400">{m.det.replace('_', ' ')}</span>
-                            </td>
-                            <td className="px-6 py-3 font-mono font-medium">{m.referenceID}</td>
-                            <td className="px-6 py-3">{m.label}</td>
+                {(data.dupes1Way.entries.length > 0 || data.dupes2Way.entries.length > 0) ? (
+                  <div className="flex-1 card flex flex-col min-h-0">
+                    <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between items-center">
+                      <div className="flex items-center gap-4">
+                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Duplicate Manifest</h3>
+                        
+                        {/* Toggle logic: Only show if both have duplicates */}
+                        {data.dupes1Way.entries.length > 0 && data.dupes2Way.entries.length > 0 && (
+                          <div className="flex bg-slate-200 p-0.5 rounded-lg ml-2">
+                            <button 
+                              onClick={() => setActiveDupView('1-WAY')}
+                              className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all ${activeDupView === '1-WAY' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                              1-WAY VIEW
+                            </button>
+                            <button 
+                              onClick={() => setActiveDupView('2-WAY')}
+                              className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all ${activeDupView === '2-WAY' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                              2-WAY VIEW
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setCurrentStep('ACTIONS');
+                          setMaxReachedIdx(prev => Math.max(prev, 3));
+                        }} 
+                        className="btn-action btn-primary px-6 text-xs flex items-center gap-2"
+                      >
+                        Continue to Comparison
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                    <div className="overflow-auto flex-1">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="text-[10px] font-bold text-slate-400 bg-white border-b border-slate-100 uppercase tracking-tighter">
+                            <th className="px-6 py-4">TYPE</th>
+                            <th className="px-6 py-4">DETECTION</th>
+                            <th className="px-6 py-4 cursor-pointer hover:text-indigo-600 transition-colors" onClick={toggleDupSort}>
+                              <div className="flex items-center gap-2">
+                                REFERENCE ID
+                                {dupSortDir === 'NONE' && <ArrowUpDown size={12} className="opacity-30" />}
+                                {dupSortDir === 'ASC' && <ArrowUp size={12} className="text-indigo-600" />}
+                                {dupSortDir === 'DESC' && <ArrowDown size={12} className="text-indigo-600" />}
+                              </div>
+                            </th>
+                            <th className="px-6 py-4">ALTERNATE NAME (LABEL)</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="text-xs">
+                          {allDuplicates.slice(0, 100).map((m, i) => (
+                            <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                              <td className="px-6 py-3">
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${m.t === '1-WAY' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}`}>
+                                  {m.t}
+                                </span>
+                              </td>
+                              <td className="px-6 py-3">
+                                <span className="text-[10px] font-bold text-slate-400">{m.det.replace('_', ' ')}</span>
+                              </td>
+                              <td className="px-6 py-3 font-mono font-medium">{m.referenceID}</td>
+                              <td className="px-6 py-3">{m.label}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex-1 card p-12 text-center flex flex-col items-center justify-center border-dashed bg-slate-50/50">
+                    <div className="w-16 h-16 bg-green-50 text-green-600 rounded-full flex items-center justify-center mb-6">
+                      <ShieldCheck size={32} />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800">Clear Data Environment</h3>
+                    <p className="text-slate-500 text-sm max-w-xs mx-auto mt-2 mb-8">
+                      No duplicate reference identifiers or labels detected across analyzed mappings.
+                    </p>
+                    <button 
+                      onClick={() => {
+                        setCurrentStep('ACTIONS');
+                        setMaxReachedIdx(prev => Math.max(prev, 3));
+                      }} 
+                      className="btn-action btn-primary px-8 flex items-center gap-2"
+                    >
+                      Proceed to Comparison
+                      <ArrowRight size={18} />
+                    </button>
+                  </div>
+                )}
 
-                <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
-                  <span className="text-xs text-slate-400 font-medium italic">Proceed to Next Actions section to run full comparison logic.</span>
-                  <button onClick={() => setCurrentStep('ACTIONS')} className="btn-action btn-primary px-10">Continue to Comparison</button>
+                <div className="pt-4 border-t border-slate-200">
+                  <span className="text-xs text-slate-400 font-medium italic">
+                    {data.dupes1Way.entries.length > 0 || data.dupes2Way.entries.length > 0 
+                      ? "Duplicates detected. Please review before proceeding." 
+                      : "Environment is clean. Ready for full logic comparison."}
+                  </span>
                 </div>
               </motion.div>
             )}
@@ -530,27 +715,14 @@ export default function App() {
                     <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{data.oneWay.length} Records Detected</span>
                   </button>
                   <button 
-                    onClick={() => {
-                      if (!oneWayComplete) return;
-                      setCurrentStep('COMPARE_2WAY');
-                    }}
-                    disabled={!oneWayComplete}
-                    className={`flex-1 card p-8 transition-all text-center group ${
-                      oneWayComplete 
-                        ? 'hover:border-slate-800 hover:ring-1 hover:ring-slate-800' 
-                        : 'opacity-50 grayscale cursor-not-allowed border-dashed'
-                    }`}
+                    onClick={() => setCurrentStep('COMPARE_2WAY')}
+                    className="flex-1 card p-8 transition-all text-center group hover:border-slate-800 hover:ring-1 hover:ring-slate-800"
                   >
-                    <div className={`w-12 h-12 rounded-lg flex items-center justify-center mx-auto mb-4 transition-colors ${
-                      oneWayComplete ? 'bg-slate-50 text-slate-400 group-hover:bg-slate-900 group-hover:text-white' : 'bg-slate-100 text-slate-300'
-                    }`}>
+                    <div className="w-12 h-12 rounded-lg flex items-center justify-center mx-auto mb-4 transition-colors bg-slate-50 text-slate-400 group-hover:bg-slate-900 group-hover:text-white">
                       <ChevronRight size={24} />
                     </div>
                     <span className="text-xl font-bold block mb-1">Process 2-WAY</span>
                     <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{data.twoWay.length} Records Detected</span>
-                    {!oneWayComplete && (
-                      <span className="mt-3 block text-[9px] font-bold text-rose-500 uppercase tracking-tighter">Requires 1-WAY Completion</span>
-                    )}
                   </button>
                 </div>
               </motion.div>
@@ -564,6 +736,15 @@ export default function App() {
                     Back to Selection
                   </button>
                   <div className="flex items-center gap-4">
+                    {statusFilters.length > 0 && (
+                      <button 
+                        onClick={() => setStatusFilters([])}
+                        className="text-[10px] font-bold text-rose-600 bg-rose-50 px-3 py-1.5 rounded-full hover:bg-rose-100 transition-colors flex items-center gap-1.5"
+                      >
+                        <RefreshCcw size={12} />
+                        Clear {statusFilters.length} Filters
+                      </button>
+                    )}
                     {currentStep === 'COMPARE_1WAY' && !oneWayComplete && (
                       <button 
                         onClick={() => setOneWayComplete(true)}
@@ -587,7 +768,9 @@ export default function App() {
                         {currentStep === 'COMPARE_1WAY' ? '1-Way Mapping Comparison' : '2-Way Mapping Comparison'}
                       </h3>
                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
-                        {currentStep === 'COMPARE_1WAY' ? data.results1Way.length : data.results2Way.length} Records Analyzed
+                        {statusFilters.length > 0 
+                          ? `Showing ${filteredResults.length} of ${activeResults.length} Records` 
+                          : `${activeResults.length} Records Analyzed`}
                       </p>
                     </div>
                     <button 
@@ -609,11 +792,45 @@ export default function App() {
                           <th className="px-6 py-4 bg-white">ATS REF ID</th>
                           <th className="px-6 py-4 bg-white">ATS LABEL</th>
                           <th className="px-6 py-4 bg-white">ATS STAGE</th>
-                          <th className="px-6 py-4 bg-white">STATUS</th>
+                          <th className="px-6 py-4 bg-white relative">
+                            <div 
+                              className="flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition-colors"
+                              onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                            >
+                              STATUS
+                              <Filter size={12} className={statusFilters.length > 0 ? 'text-indigo-600' : ''} />
+                              <ChevronDown size={12} />
+                            </div>
+                            
+                            {showFilterDropdown && (
+                              <>
+                                <div className="fixed inset-0 z-20" onClick={() => setShowFilterDropdown(false)} />
+                                <div className="absolute right-6 top-full mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-xl z-30 py-2 normal-case font-medium">
+                                  <div className="px-3 py-1 border-b border-slate-100 mb-2 flex justify-between items-center bg-slate-50">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Filter Status</span>
+                                    <button onClick={() => setStatusFilters([])} className="text-[9px] text-indigo-600 hover:underline">Reset</button>
+                                  </div>
+                                  <div className="max-h-48 overflow-auto px-1">
+                                    {uniqueStatuses.map(status => (
+                                      <label key={status} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer rounded-md transition-colors text-slate-600">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={statusFilters.includes(status)}
+                                          onChange={() => toggleStatusFilter(status)}
+                                          className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <span className="text-xs">{status.replace('_', ' ')}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="text-xs">
-                        {(currentStep === 'COMPARE_1WAY' ? data.results1Way : data.results2Way).map((res, i) => {
+                        {filteredResults.map((res, i) => {
                           const statusTheme = {
                             'PERFECT_MATCH': { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: <CheckCircle2 size={12} /> },
                             'REFERENCE_ID_CHANGE': { bg: 'bg-blue-50', text: 'text-blue-700', icon: <CheckCircle2 size={12} /> },
@@ -624,11 +841,11 @@ export default function App() {
 
                           return (
                             <tr key={i} className={`border-b border-slate-50 transition-colors ${statusTheme.bg}/50 hover:${statusTheme.bg}`}>
-                              <td className="px-6 py-4 font-mono font-medium truncate max-w-[200px]">{res.staticReferenceID}</td>
-                              <td className="px-6 py-4 max-w-[200px]">{res.staticLabel}</td>
+                              <td className="px-6 py-4 font-mono font-medium break-all min-w-[240px]">{res.staticReferenceID}</td>
+                              <td className="px-6 py-4 min-w-[200px]">{res.staticLabel}</td>
                               <td className="px-6 py-4 text-slate-400 italic font-medium">{res.staticStage || 'N/A'}</td>
-                              <td className="px-6 py-4 font-mono font-medium truncate max-w-[200px]">{res.atsReferenceID}</td>
-                              <td className="px-6 py-4 max-w-[200px]">{res.atsLabel}</td>
+                              <td className="px-6 py-4 font-mono font-medium break-all min-w-[240px]">{res.atsReferenceID}</td>
+                              <td className="px-6 py-4 min-w-[200px]">{res.atsLabel}</td>
                               <td className="px-6 py-4 text-slate-400 italic font-medium">{res.atsStage}</td>
                               <td className="px-6 py-4">
                                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${statusTheme.bg} ${statusTheme.text} border`}>

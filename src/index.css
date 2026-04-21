@@ -19,6 +19,9 @@
   body {
     @apply bg-slate-50 text-slate-900 antialiased font-sans;
   }
+  button, label[for], .cursor-pointer {
+    @apply cursor-pointer;
+  }
 }
 
 @layer components {
@@ -52,6 +55,14 @@
   
   .sidebar-step-completed {
     @apply w-6 h-6 rounded-full bg-indigo-100 border border-indigo-600 text-indigo-600 flex items-center justify-center text-[10px] shrink-0 z-10 font-bold;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }
 

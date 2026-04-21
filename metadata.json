@@ -1,0 +1,6 @@
+{
+  "name": "Flow-Based JSON Mapper",
+  "description": "A workflow-based tool to parse, classify, and compare JSON mapping files with duplicate detection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

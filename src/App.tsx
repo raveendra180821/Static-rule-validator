@@ -218,10 +218,24 @@ export default function App() {
     setMaxReachedIdx(prev => Math.max(prev, 2));
   };
 
+  const getFilePrefix = () => {
+    if (!files.static) return "";
+    const fullName = files.static.name;
+    const nameWithoutExt = fullName.substring(0, fullName.lastIndexOf('.')) || fullName;
+    const firstUnderscoreIndex = nameWithoutExt.indexOf('_');
+    
+    if (firstUnderscoreIndex !== -1) {
+      return nameWithoutExt.substring(0, firstUnderscoreIndex);
+    }
+    return nameWithoutExt;
+  };
+
   const downloadDuplicates = (type: '1-WAY' | '2-WAY') => {
     const targetData = type === '1-WAY' ? data.dupes1Way.entries : data.dupes2Way.entries;
     const csv = convertToCSV(targetData, ['referenceID', 'label']);
-    downloadFile(csv, `duplicates_${type.toLowerCase()}.csv`, 'text/csv');
+    const prefix = getFilePrefix();
+    const fileName = prefix ? `${prefix}_duplicates_${type.toLowerCase()}.csv` : `duplicates_${type.toLowerCase()}.csv`;
+    downloadFile(csv, fileName, 'text/csv');
   };
 
   const downloadResults = (type: '1-WAY' | '2-WAY') => {
@@ -230,7 +244,9 @@ export default function App() {
       'type', 'staticKey', 'staticLabel', 'staticReferenceID', 'staticStage', 
       'atsReferenceID', 'atsLabel', 'atsStage', 'status'
     ]);
-    downloadFile(csv, `comparison_${type.toLowerCase()}.csv`, 'text/csv');
+    const prefix = getFilePrefix();
+    const fileName = prefix ? `${prefix}_comparison_${type.toLowerCase()}.csv` : `comparison_${type.toLowerCase()}.csv`;
+    downloadFile(csv, fileName, 'text/csv');
   };
 
   const allDuplicates = React.useMemo(() => {
@@ -832,15 +848,15 @@ export default function App() {
                       <tbody className="text-xs">
                         {filteredResults.map((res, i) => {
                           const statusTheme = {
-                            'PERFECT_MATCH': { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: <CheckCircle2 size={12} /> },
-                            'REFERENCE_ID_CHANGE': { bg: 'bg-blue-50', text: 'text-blue-700', icon: <CheckCircle2 size={12} /> },
-                            'STAGE_CHANGE': { bg: 'bg-amber-50', text: 'text-amber-700', icon: <AlertCircle size={12} /> },
-                            'LABEL_CHANGE': { bg: 'bg-amber-50', text: 'text-amber-700', icon: <AlertCircle size={12} /> },
-                            'NO_MATCH': { bg: 'bg-rose-50', text: 'text-rose-700', icon: <AlertCircle size={12} /> }
-                          }[res.status] || { bg: 'bg-slate-50', text: 'text-slate-700', icon: null };
+                            'PERFECT_MATCH': { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: <CheckCircle2 size={12} />, row: 'bg-emerald-50/50 hover:bg-emerald-50' },
+                            'REFERENCE_ID_CHANGE': { bg: 'bg-blue-50', text: 'text-blue-700', icon: <CheckCircle2 size={12} />, row: 'bg-blue-50/50 hover:bg-blue-50' },
+                            'STAGE_CHANGE': { bg: 'bg-sky-50', text: 'text-sky-700', icon: <AlertCircle size={12} />, row: 'bg-sky-50/50 hover:bg-sky-50' },
+                            'LABEL_CHANGE': { bg: 'bg-amber-50', text: 'text-amber-700', icon: <AlertCircle size={12} />, row: 'bg-amber-50/50 hover:bg-amber-50' },
+                            'NO_MATCH': { bg: 'bg-rose-50', text: 'text-rose-700', icon: <AlertCircle size={12} />, row: 'bg-rose-50/50 hover:bg-rose-50' }
+                          }[res.status] || { bg: 'bg-slate-50', text: 'text-slate-700', icon: null, row: 'bg-slate-50/50 hover:bg-slate-50' };
 
                           return (
-                            <tr key={i} className={`border-b border-slate-50 transition-colors ${statusTheme.bg}/50 hover:${statusTheme.bg}`}>
+                            <tr key={i} className={`border-b border-slate-50 transition-colors ${statusTheme.row}`}>
                               <td className="px-6 py-4 font-mono font-medium break-all min-w-[240px]">{res.staticReferenceID}</td>
                               <td className="px-6 py-4 min-w-[200px]">{res.staticLabel}</td>
                               <td className="px-6 py-4 text-slate-400 italic font-medium">{res.staticStage || 'N/A'}</td>

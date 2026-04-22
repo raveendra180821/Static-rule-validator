@@ -18,7 +18,11 @@ import {
   ChevronDown,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Copy,
+  Search,
+  Check,
+  X
 } from 'lucide-react';
 import { Step, MappingEntry, ATSStep, DuplicateAnalysis, ComparisonResult } from './types';
 import { 
@@ -91,6 +95,12 @@ export default function App() {
 
   const [dragState, setDragState] = useState<{ [key: string]: boolean }>({ static: false, ats: false });
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [lookupRefId, setLookupRefId] = useState('');
+  const [lookupResults, setLookupResults] = useState<{key: string, value: string}[]>([]);
+  const [copied, setCopied] = useState(false);
+  const [show2WayLookup, setShow2WayLookup] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [lookupError, setLookupError] = useState('');
 
   const handleFileUpload = (type: 'static' | 'ats', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -249,6 +259,49 @@ export default function App() {
     downloadFile(csv, fileName, 'text/csv');
   };
 
+  const downloadClassifiedJSON = (type: '1-WAY' | '2-WAY') => {
+    const mappings = type === '1-WAY' ? data.oneWay : data.twoWay;
+    const obj: Record<string, string> = {};
+    
+    if (type === '1-WAY') {
+      mappings.forEach(m => { obj[m.referenceID] = m.label; });
+    } else {
+      mappings.forEach(m => { obj[m.label] = m.referenceID; });
+    }
+    
+    const prefix = getFilePrefix();
+    const fileName = prefix 
+      ? `${prefix}_classified_${type.toLowerCase()}.json` 
+      : `classified_${type.toLowerCase()}.json`;
+    
+    downloadFile(JSON.stringify(obj, null, 2), fileName, 'application/json');
+  };
+
+  const performLookup = () => {
+    if (!lookupRefId.trim()) {
+      setLookupError('Please enter a referenceID');
+      setLookupResults([]);
+      setHasSearched(true);
+      return;
+    }
+    setLookupError('');
+    const results = data.twoWay
+      .filter(m => m.referenceID.trim() === lookupRefId.trim())
+      .map(m => ({ key: m.label, value: m.referenceID }));
+    setLookupResults(results);
+    setHasSearched(true);
+  };
+
+  const copyLookupResults = () => {
+    if (lookupResults.length === 0) return;
+    const obj: Record<string, string> = {};
+    lookupResults.forEach(r => { obj[r.key] = r.value; });
+    const text = JSON.stringify(obj, null, 2);
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const allDuplicates = React.useMemo(() => {
     const list1 = data.dupes1Way.entries.map(d => ({...d, t: '1-WAY' as const, det: data.dupes1Way.type}));
     const list2 = data.dupes2Way.entries.map(d => ({...d, t: '2-WAY' as const, det: data.dupes2Way.type}));
@@ -297,6 +350,9 @@ export default function App() {
     setActiveDupView('1-WAY');
     setCurrentStep('UPLOAD');
     setShowResetConfirm(false);
+    setShow2WayLookup(false);
+    setHasSearched(false);
+    setLookupError('');
   };
 
   return (
@@ -348,6 +404,119 @@ export default function App() {
                   className="flex-1 px-4 py-2.5 text-sm font-bold bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-200 hover:bg-amber-700 active:scale-95 transition-all"
                 >
                   Yes, Reset
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {show2WayLookup && (
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setShow2WayLookup(false)}
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-100 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-amber-50 px-8 py-4 border-b border-amber-200 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center">
+                    <Search size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 leading-tight">2-Way Mapping Quick Lookup</h3>
+                    <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Search within classified 2-way values</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShow2WayLookup(false)} 
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-full transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-8 flex flex-col gap-6">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input 
+                      type="text" 
+                      placeholder="Enter exact ReferenceID (e.g., AD_APPLICATION_START)" 
+                      className={`w-full px-5 py-3 text-sm border rounded-xl focus:outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 pr-12 shadow-sm transition-all ${lookupError ? 'border-rose-300' : 'border-slate-200'}`}
+                      value={lookupRefId}
+                      onChange={(e) => {
+                        setLookupRefId(e.target.value);
+                        setHasSearched(false);
+                        setLookupResults([]);
+                        setLookupError('');
+                      }}
+                      onKeyDown={(e) => e.key === 'Enter' && performLookup()}
+                      autoFocus
+                    />
+                    <div className="absolute right-4 top-3.5 text-slate-300">
+                      <Hash size={18} />
+                    </div>
+                  </div>
+                  <button 
+                    onClick={performLookup}
+                    className="bg-amber-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-amber-700 active:scale-95 transition-all shadow-lg shadow-amber-200 flex items-center gap-2"
+                  >
+                    <Search size={18} />
+                    Search
+                  </button>
+                </div>
+
+                {hasSearched && (
+                  lookupError ? (
+                    <div className="py-6 text-center bg-rose-50 rounded-xl border border-dashed border-rose-200">
+                      <p className="text-sm text-rose-600 font-medium">{lookupError}</p>
+                    </div>
+                  ) : lookupResults.length > 0 ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Results found: {lookupResults.length}</span>
+                        <button 
+                          onClick={copyLookupResults}
+                          className={`flex items-center gap-2 text-xs font-bold transition-all px-3 py-1.5 rounded-lg ${copied ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-600 hover:bg-amber-50 hover:text-amber-700'}`}
+                        >
+                          {copied ? <Check size={14} /> : <Copy size={14} />}
+                          {copied ? 'Copied' : 'Copy results'}
+                        </button>
+                      </div>
+                      <div className="bg-slate-900 rounded-xl p-6 font-mono text-xs text-amber-200 overflow-x-auto max-h-[400px] shadow-inner leading-relaxed border border-slate-800">
+                        {lookupResults.map((r, i) => (
+                          <div key={i} className="mb-2 last:mb-0 hover:bg-slate-800/50 -mx-2 px-2 rounded transition-colors group">
+                            <span className="text-emerald-400 font-medium group-hover:text-emerald-300">"{r.key}"</span>
+                            <span className="text-slate-500"> : </span>
+                            <span className="text-sky-300 font-medium group-hover:text-sky-200">"{r.value}"</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300 shadow-sm">
+                        <Search size={24} />
+                      </div>
+                      <p className="text-sm text-slate-600 font-medium">No matches found</p>
+                      <p className="text-xs text-slate-400 mt-1 max-w-[200px] mx-auto leading-normal">
+                        The ReferenceID "{lookupRefId}" does not exist in the 2-way mapping dataset.
+                      </p>
+                    </div>
+                  )
+                )}
+              </div>
+              <div className="bg-slate-50 p-4 px-8 border-t border-slate-100 flex justify-end">
+                <button 
+                  onClick={() => setShow2WayLookup(false)}
+                  className="px-6 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                >
+                  Dismiss
                 </button>
               </div>
             </motion.div>
@@ -544,7 +713,6 @@ export default function App() {
                     )}
                   </p>
                   <div className="flex gap-3">
-                    <button onClick={() => setCurrentStep('UPLOAD')} className="btn-action btn-secondary px-6">Modify Uploads</button>
                     <button onClick={runDuplicateCheck} className="btn-action btn-primary px-8 flex items-center gap-2">
                       Analyze Duplicates
                       <ChevronRight size={18} />
@@ -570,18 +738,56 @@ export default function App() {
                     { type: '1-WAY', analysis: data.dupes1Way, color: 'indigo' },
                     { type: '2-WAY', analysis: data.dupes2Way, color: 'amber' }
                   ].map(section => (
-                    <div key={section.type} className="card p-5">
+                    <div 
+                      key={section.type} 
+                      className={`card p-5 transition-all ${section.type === '2-WAY' ? 'cursor-pointer hover:border-amber-400 hover:shadow-md' : ''}`}
+                      onClick={() => section.type === '2-WAY' && setShow2WayLookup(true)}
+                    >
                       <div className="flex justify-between items-center mb-3">
                         <span className={`text-[10px] font-bold text-${section.color}-600 uppercase tracking-widest`}>{section.type} HSI Mapping</span>
                         <div className="flex gap-2">
-                          {section.analysis.type !== 'NONE' && (
-                            <span className={`px-2 py-0.5 bg-${section.color}-600 text-white text-[9px] font-black rounded uppercase`}>
-                              {section.analysis.type.replace('_', ' ')}
-                            </span>
+                          {section.type === '2-WAY' ? (
+                            <div className="relative p-[1.5px] overflow-hidden rounded-full transition-transform active:scale-95 group/lookup bg-amber-100 shadow-[0_0_10px_rgba(34,197,94,0.2)]">
+                              {/* Moving Border Layer - Enhanced visibility with wider sweep and higher opacity */}
+                              <motion.div 
+                                animate={{ 
+                                  rotate: [0, 360],
+                                }}
+                                transition={{ 
+                                  duration: 2.5, 
+                                  repeat: Infinity, 
+                                  ease: "linear" 
+                                }}
+                                className="absolute inset-[-100%] bg-[conic-gradient(from_0deg,transparent_0deg,transparent_240deg,#4ade80_300deg,#22c55e_360deg)] opacity-80"
+                              />
+                              
+                              <motion.span 
+                                animate={{ 
+                                  scale: [1, 1.05, 1],
+                                }}
+                                transition={{ 
+                                  duration: 2, 
+                                  repeat: Infinity, 
+                                  ease: "easeInOut" 
+                                }}
+                                className="relative z-10 text-[9px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full flex items-center gap-1.5 backdrop-blur-md"
+                              >
+                                <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+                                CLICK TO LOOKUP
+                              </motion.span>
+                            </div>
+                          ) : (
+                            <>
+                              {section.analysis.type !== 'NONE' && (
+                                <span className={`px-2 py-0.5 bg-${section.color}-600 text-white text-[9px] font-black rounded uppercase`}>
+                                  {section.analysis.type.replace('_', ' ')}
+                                </span>
+                              )}
+                              <span className={`px-2 py-0.5 bg-${section.color}-50 text-${section.color}-700 text-[10px] font-bold rounded-full`} >
+                                {section.analysis.entries.length > 0 ? `${section.analysis.entries.length} Flags` : 'Clean'}
+                              </span>
+                            </>
                           )}
-                          <span className={`px-2 py-0.5 bg-${section.color}-50 text-${section.color}-700 text-[10px] font-bold rounded-full`} >
-                            {section.analysis.entries.length > 0 ? `${section.analysis.entries.length} Flags` : 'Clean'}
-                          </span>
                         </div>
                       </div>
                       <div className="flex items-end justify-between">
@@ -593,12 +799,26 @@ export default function App() {
                               : 'No Duplicates Found'}
                           </p>
                         </div>
-                        {section.analysis.entries.length > 0 && (
-                          <button onClick={() => downloadDuplicates(section.type as '1-WAY' | '2-WAY')} className="btn-dense">
-                            <Download size={12} />
-                            DOWNLOAD CSV
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => downloadClassifiedJSON(section.type as '1-WAY' | '2-WAY')} 
+                            className="btn-dense bg-slate-700 hover:bg-slate-800"
+                            title="Download full classified mapping as JSON"
+                          >
+                            <FileJson size={12} />
+                            JSON
                           </button>
-                        )}
+                          {section.analysis.entries.length > 0 && (
+                            <button 
+                              onClick={() => downloadDuplicates(section.type as '1-WAY' | '2-WAY')} 
+                              className="btn-dense"
+                              title="Download duplicates only as CSV"
+                            >
+                              <Download size={12} />
+                              CSV
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -696,6 +916,7 @@ export default function App() {
                     </button>
                   </div>
                 )}
+
 
                 <div className="pt-4 border-t border-slate-200">
                   <span className="text-xs text-slate-400 font-medium italic">
